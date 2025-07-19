@@ -43,7 +43,7 @@ A few notes:
 
 ### Making new disk images
 
-The dos6.vhd is just the raw sectors of the hard disk. The easies way I found to create and manipulate them is `qemu-img` as part of QEMM. To create a new image,
+The dos6.vhd is just the raw sectors of the hard disk. The easies way I found to create and manipulate them is `qemu-img` as part of QEMU. To create a new image,
 
 ```bash
 qemu-img create my.vhd 32m
