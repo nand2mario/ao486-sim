@@ -5,7 +5,7 @@ A complete whole-system simulation of the ao486 CPU core and PC architecture, ha
 ## Overview
 
 ao486-sim is an educational tool that simulates:
-- **Intel 80486 CPU core** with full x86 instruction set support
+- **Intel 80486-compatible CPU core** with full x86 instruction set support
 - **Complete PC architecture** including essential peripherals
 - **Working MS-DOS 6.22** system 
 - **Real-time VGA graphics** for text and graphics
