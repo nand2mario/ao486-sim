@@ -34,10 +34,19 @@ localparam WRITE = 2;
 reg [23:0] sd_sector;
 reg [7:0] sd_sector_count;
 
-localparam SD_BUF_SIZE = 33554432;       // max 1GB (2^30 bytes)
-initial $readmemh("dos6.vhd.hex", sd_buf);
+byte sd_buf[32*1024*1024] /* verilator public */;
+int unsigned sd_size;
 
-reg [7:0] sd_buf [0:SD_BUF_SIZE-1];
+export "DPI-C" task sd_write;
+task sd_write(
+    input  int unsigned        addr,
+    input  byte unsigned       data
+);
+    sd_buf[addr] = data;
+endtask
+
+// initial $readmemh("dos6.vhd.hex", sd_buf);
+
 reg [29:0] sd_buf_ptr, sd_buf_ptr_end;
 
 always @(posedge clk) begin

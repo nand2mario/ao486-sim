@@ -27,14 +27,11 @@ SOURCES = $D/system.sv $D/sdram_sim.sv $D/ao486/ao486.v $D/ao486/exception.v $D/
 CPP_SOURCES = main.cpp ide.cpp
 
 # Default target
-all: obj_dir/Vsystem dos6.vhd.hex
+all: obj_dir/Vsystem dos6.vhd
 
 # Generate Verilator files and build
 obj_dir/Vsystem: $(SOURCES) $(CPP_SOURCES)
 	$(VERILATOR) $(VERILATOR_FLAGS) $(VERILATOR_INCLUDE) $(VERILATOR_OPT) $(SOURCES) $(CPP_SOURCES) 
-
-dos6.vhd.hex: dos6.vhd
-	hexdump -v -e '/1 "%02x\n"' dos6.vhd > dos6.vhd.hex
 
 dos6.vhd: dos6.vhd.gz
 	gunzip -k dos6.vhd.gz
@@ -46,10 +43,10 @@ clean:
 
 # msdos622.vhd is hard-coded in driver_sd_sim.v
 # ./obj_dir/Vsystem -s 235000000 -e 240000000 boot0.rom boot1.rom
-trace: obj_dir/Vsystem dos6.vhd.hex
-	./obj_dir/Vsystem --trace -s 0 -e 10000000 boot0.rom boot1.rom
+trace: obj_dir/Vsystem dos6.vhd
+	./obj_dir/Vsystem --trace -s 0 -e 10000000 boot0.rom boot1.rom dos6.vhd
 
-sim: obj_dir/Vsystem dos6.vhd.hex
-	./obj_dir/Vsystem boot0.rom boot1.rom
+sim: obj_dir/Vsystem dos6.vhd
+	./obj_dir/Vsystem boot0.rom boot1.rom dos6.vhd
 
 .PHONY: all sim run clean

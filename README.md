@@ -36,7 +36,7 @@ A few notes:
 - When you see "Starting MS-DOS...", pressing any key will speed up the boot process, as DOS is waiting for user input at that stage.
 - **Output**: Watch the terminal window for colored status messages from the BIOS and DOS. These are captured by intercepting specific software interrupts and function calls.
 - **Exit**: To quit, simply close the window or press Ctrl+C in the terminal.
-- The hard disk is currently non-persistent—any changes you make will not be saved to the disk image. Enabling persistence should be straightforward if needed. The IDE module (`src/soc/ide.v`) is adapted from the original ao486's `hdd.v`, which was backed by an SD card; in the simulator, this is replaced by a disk image file.
+- **Hard disk**: The hard disk image is not automatically saved; you must manually persist any changes by pressing a key (CMD-s on Mac or WIN-s on Windows). The IDE module (`src/soc/ide.v`) is based on ao486's original `hdd.v`, which used an SD card for storage. In this simulator, it has been modified to use a disk image file instead.
 - 2MB of main memory is available by default. You can increase this by modifying `init_cmos()` in `main.cpp` and `SIZE_MB` in `src/sdram_sim.sv`. Note that increasing memory will cause himem.sys initialization to take proportionally longer.
 - On an M4 MacBook Pro, the simulation runs at about 0.7 FPS, and booting DOS takes roughly 1.5 minutes.
 - There is a known [Verilator race condition](https://github.com/verilator/verilator/issues/5756) that can cause `Internal Error: ../V3TSP.cpp:353` during compilation. If you encounter this, try running `make` several times. If the issue persists, remove `--threads 2` from the Makefile; the simulation will run a bit slower, but should work reliably.
@@ -49,12 +49,12 @@ The dos6.vhd is just the raw sectors of the hard disk. The easies way I found to
 qemu-img create my.vhd 32m
 ```
 
-Then you can mount the image and install systems,
+Then you can mount the image and install DOS or other software packages from floppies,
 ```bash
 qemu-system-i386 -drive file=my.vhd,format=raw,index=0,media=disk -m 64 -L . -fda msdos6_22disk1.img -boot a
 ```
 
-To use the new image, look at `Makefile` and `src/soc/driver_sd_sim.v`.
+Read `Makefile` for how to use the new hard disk image.
 
 ### About ao486
 The [ao486](https://github.com/MiSTer-devel/ao486_MiSTer) CPU implements a 4-stage pipeline:

@@ -1,3 +1,4 @@
+#include <svdpi.h>
 #include "Vsystem.h"
 #include "verilated.h"
 #include "verilated_fst_c.h"
@@ -6,6 +7,7 @@
 #include <set>
 #include <map>
 #include <vector>
+#include <sys/stat.h>
 #include <SDL.h>
 
 // #include "ide.h"
@@ -14,6 +16,7 @@
 #include "Vsystem_system.h"
 #include "Vsystem_pipeline.h"
 #include "Vsystem_sdram_sim.h"
+#include "Vsystem_driver_sd.h"
 
 #include "ide.h"
 
@@ -26,8 +29,9 @@ const int H_RES = 720;    // VGA text mode is 720x400
 const int V_RES = 480;    // graphics mode is max 640x480
 int resolution_x = 720;
 int resolution_y = 400;
+int x_cnt, y_cnt;
 int frame_count = 0;
-
+string disk_file;
 typedef struct Pixel
 {			   // for SDL texture
 	uint8_t a; // transparency
@@ -339,7 +343,7 @@ void bios_printf(const string fmt, uint32_t sp, uint32_t ds, uint32_t ss) {
 }
 
 void usage() {
-    printf("\nUsage: Vsystem [--trace] [-s T0] [-e T1] <bios.bin> <video_bios.rom>\n");
+    printf("\nUsage: Vsystem [--trace] [-s T0] [-e T1] <boot0.rom> <boot1.rom> <disk.vhd>\n");
     printf("  -s T0     start tracing at time T0\n");
     printf("  -e T1     stop simulation at time T1\n");
     printf("  --trace   start trace immediately\n");
@@ -349,10 +353,13 @@ void usage() {
     printf("  --mem <addr> watch memory location\n");
 }
 
+void load_disk();
+void persist_disk();
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
 
-    if (argc < 3) {
+    if (argc < 3+1) {
         usage();
         return 1;
     }
@@ -381,13 +388,13 @@ int main(int argc, char** argv) {
             printf("Unknown option: %s\n", argv[i]);
             return 1;
         } else {
-            if (i+2 > argc) {
+            if (i+3 > argc) {
                 usage();
                 return 1;
             }
             bios_name = argv[i];
             video_bios_name = argv[++i];
-            // ide0.open(argv[++i]);
+            disk_file = argv[++i];
             break;
         }
     }
@@ -463,6 +470,9 @@ int main(int argc, char** argv) {
 
     // set HDD geometry and other parameters
     init_ide("dos6.vhd");
+
+    // load disk image into drive_sd_sim.sv
+    load_disk();  
 
     // now start cpu
     tb.reset = 0;
@@ -586,16 +596,23 @@ int main(int argc, char** argv) {
         // Capture video frame
         if (tb.clk_sys && tb.video_ce) {
             if (tb.video_vsync && !vsync_r) {
-                x = 0;
-                y = 0;
-                // if (tb.video_width != resolution_x || tb.video_height != resolution_y) {
-                //     resolution_x = tb.video_width;
-                //     resolution_y = tb.video_height;
-                //     printf("Video resolution changed to %d x %d\n", resolution_x, resolution_y);
-                // }
-                printf("%8lld: VSYNC: pix_cnt=%d, width=%d, height=%d, speaker=%s, CS:IP=%04x:%04x\n", sim_time, pix_cnt, resolution_x, resolution_y, speaker_active ? "ON" : "OFF", 
+                x = 0; y = 0;
+                x_cnt++; y_cnt++;
+                printf("%8lld: VSYNC: pix_cnt=%d, width=%d, height=%d, speaker=%s, CS:IP=%04x:%04x\n", sim_time, pix_cnt, x_cnt, y_cnt, speaker_active ? "ON" : "OFF", 
                         tb.system->ao486->pipeline_inst->cs, tb.system->ao486->eip);
-                pix_cnt = 0;
+
+                // detect video resolution change
+                const vector<pair<int,int>> resolutions = 
+                    {{720,400}, {360,400}, {640,344},                                    // text modes
+                     {640,480}, {640,400}, {640,200}, {640,350}, {320,200}, {320,240}};  // graphics modes
+                if ((x_cnt != resolution_x || y_cnt != resolution_y) && 
+                       find(resolutions.begin(), resolutions.end(), pair<int,int>{x_cnt, y_cnt}) != resolutions.end()) {
+                    printf("New video resolution: %d x %d\n", x_cnt, y_cnt);
+                    resolution_x = x_cnt;
+                    resolution_y = y_cnt;
+                }
+
+                pix_cnt = 0; x_cnt = 0; y_cnt = 0;
                 speaker_active = false;
                 
                 // FPS calculation using wall clock time
@@ -620,7 +637,7 @@ int main(int argc, char** argv) {
                 SDL_RenderPresent(sdl_renderer);
                 frame_count++;
                 SDL_SetWindowTitle(sdl_window, ("ao486 sim - frame " + to_string(frame_count) + (trace_toggle ? " tracing" : "") + (speaker_active ? " speaker" : "")).c_str());
-            } else if (!tb.video_blank_n) {   // hsync is inverted
+            } else if (!tb.video_blank_n) {
                 x=0;
                 if (blank_n_r) y++;
             } else {
@@ -634,6 +651,8 @@ int main(int argc, char** argv) {
                         // printf("Pixel at %d,%d\n", x, y);
                         pix_cnt++;
                     }
+                    x_cnt = max(x_cnt, x);
+                    y_cnt = max(y_cnt, y);
                 }
                 x++;
             }
@@ -663,10 +682,13 @@ int main(int argc, char** argv) {
                     }
                 }
 				if (e.type == SDL_KEYDOWN && e.key.keysym.sym != last_key) {
-					// press WIN-T to toggle trace
                     if (e.key.keysym.mod & KMOD_LGUI) {
                         if (e.key.keysym.sym == SDLK_t) {
+    	    				// press WIN-T to toggle trace
                             set_trace(!trace_toggle);
+                        } else if (e.key.keysym.sym == SDLK_s) {
+                            // press WIN-S to backup disk content
+                            persist_disk();
                         }
                     } else {
                         last_key = e.key.keysym.sym;
@@ -744,4 +766,80 @@ void set_trace(bool toggle) {
         }
     }
     trace_toggle = toggle;
+}
+
+int disk_size;
+// Prototypes generated by Verilator from the exports
+extern "C" {
+    void sd_write(unsigned addr, const uint8_t data);
+}
+
+
+static svScope sd_scope = nullptr;
+
+// DPI-C call from verilog to load disk image
+void load_disk() {
+    const char *fname = disk_file.c_str();
+    unsigned blk_sz = 1024;
+    struct stat st;
+    printf("Loading disk image from %s.\n", fname);
+    sd_scope = svGetScopeFromName("TOP.system.driver_sd");
+    if (!sd_scope) {
+        fprintf(stderr,
+                "ERROR: scope TOP.tb.driver_sd_sim not found\n");
+        exit(1);
+    }    
+    svSetScope(sd_scope);
+
+    if (stat(fname, &st) != 0) { perror(fname); return; }
+    disk_size = st.st_size;
+
+    FILE* f = fopen(fname, "rb");
+    if (!f) { perror(fname); return; }
+
+    std::vector<uint8_t> buf(blk_sz);
+    unsigned addr = 0;
+    while (addr < disk_size) {
+        size_t n = fread(buf.data(), 1,
+                         std::min<unsigned>(blk_sz, disk_size - addr), f);
+        if (!n) break;
+        for (int i = 0; i < n; i++) {
+            sd_write(addr + i, buf[i]);
+        }
+        addr += n;
+    }
+    fclose(f);
+    printf("Disk image loaded.\n");
+}
+
+void persist_disk() {
+    uint8_t buf[1024];
+    printf("Persisting disk image to %s.\n", disk_file.c_str());
+    svSetScope(sd_scope);
+
+    if (rename(disk_file.c_str(), (disk_file + ".bak").c_str()) != 0) {
+        printf("Failed to rename existing disk image to %s.bak\n", disk_file.c_str());
+        return;
+    }
+    printf("Existing disk image renamed to %s.bak\n", disk_file.c_str());
+
+    // write new disk image
+    FILE* f = fopen(disk_file.c_str(), "wb");
+    if (!f) {
+        printf("Failed to open disk image for writing\n");
+        return;
+    }
+    for (int i = 0; i < disk_size; i += 1024) {
+        int n = std::min(1024, disk_size - i);
+        for (int j = 0; j < n; j++) {
+            buf[j] = tb.system->driver_sd->sd_buf[i+j];
+        }
+        if (fwrite(buf, 1, n, f) != (size_t)n) {
+            printf("Failed to write disk image\n");
+            fclose(f);
+            return;
+        }
+    }
+    fclose(f);
+    printf("Disk image persisted to %s\n", disk_file.c_str());
 }
