@@ -33,10 +33,7 @@ all: obj_dir/Vsystem dos6.vhd
 obj_dir/Vsystem: $(SOURCES) $(CPP_SOURCES)
 	$(VERILATOR) $(VERILATOR_FLAGS) $(VERILATOR_INCLUDE) $(VERILATOR_OPT) $(SOURCES) $(CPP_SOURCES) 
 
-dos6.vhd: dos6.vhd.gz
-	gunzip -k dos6.vhd.gz
-
-# Clean generated filesx2
+# Clean generated files
 clean:
 	rm -rf obj_dir
 	rm -f *.o *.d sim_cache
