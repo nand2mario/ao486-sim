@@ -1,7 +1,20 @@
-#include <svdpi.h>
-#include "Vsystem.h"
+// ao486-sim: x86 whole-system simulator
+//
+// This is a Verilator-based simulator for the ao486 CPU core.
+// It simulates the entire x86 system, including the CPU, memory,
+// and peripherals.
+//
+// nand2mario, 7/2025
+//
 #include "verilated.h"
 #include "verilated_fst_c.h"
+#include "Vsystem.h"
+#include "Vsystem_ao486.h"
+#include "Vsystem_system.h"
+#include "Vsystem_pipeline.h"
+#include "Vsystem_sdram_sim.h"
+#include "Vsystem_driver_sd.h"
+#include <svdpi.h>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -10,21 +23,10 @@
 #include <sys/stat.h>
 #include <SDL.h>
 
-// #include "ide.h"
-
-#include "Vsystem_ao486.h"
-#include "Vsystem_system.h"
-#include "Vsystem_pipeline.h"
-#include "Vsystem_sdram_sim.h"
-#include "Vsystem_driver_sd.h"
-
 #include "ide.h"
 
 using namespace std;
 
-// SoC simulator
-
-// See: https://projectf.io/posts/verilog-sim-verilator-sdl/
 const int H_RES = 720;    // VGA text mode is 720x400
 const int V_RES = 480;    // graphics mode is max 640x480
 int resolution_x = 720;
@@ -88,78 +90,6 @@ void load_program(uint32_t start_addr, std::vector<uint8_t> &program) {
     tb.dbg_mem_wr = 0;
     step(); step();
 }
-
-// POST codes
-std::map<uint8_t, std::string> post_codes = {
-    {0x00, "POST CODE 00"},
-    {0x01, "SHUT0"},
-    {0x02, "TEST.02 ROM checksum test"},
-    {0x03, "TEST.03 verify CMOS shutdown byte"},
-    {0x04, "TEST.04 8254 timer 1 all bits on"},
-    {0x05, "TEST.05 8254 timer 1 all bits off"},
-    {0x06, "TEST.06 8237 DMA 0 initialization"},
-    {0x07, "TEST.07 8237 DMA 1 initialization"},
-    {0x08, "TEST.08 DMA page register test"},
-    {0x09, "TEST.09 memory refresh test"},
-    {0x0A, "TEST.10 8042 interface test"},
-    {0x0B, "  start issue a reset to 8042"},
-    {0x0C, "  end   issue a reset to 8042"},
-    {0x0D, "  write byte 0 to 8042 memory"},
-    {0x0E, "TEST.11 base 64k read/write memory test"},
-    {0x0F, "  get the input buffer (switch settings)"},
-    {0xDD, "  memory ERROR"},
-    {0x11, "  initialized display row count, verifying speed/refresh clock rates"},
-    {0x12, "TEST.11A verify 286 LGDT/SGDT LIDT/SIDT instructions"},
-    {0x13, "  initialize 8259 interrupt #2 controller chip"},
-    {0x14, "  setup interrupt vectors to temp interrupt"},
-    {0x15, "  establish BIOS subroutine call interrupt vectors"},
-    {0x16, "TEST.12 verify CMOS checksum/battery OK"},
-    {0x17, "  set defective battery flag"},
-    {0x18, "  CMOS check success"},
-    {0x19, "  calling SYSINIT1"},
-    {0x1A, "  in protected mode, setting temp stack"},
-    {0x1B, "TEST.13 protected mode test and memory size determine"},
-    {0x1C, "  set or reset 512 to 640 installed flag"},
-    {0x1D, "TEST.13A protected mode test and memory size determine (above 1024K)"},
-    {0x1E, "  set expansion memory size determined in CMOS"},
-    {0x1F, "  test address lines 19-23"},
-    {0x20, "  cause a shutdown"},
-    {0x21, "TEST.13A SHUT1, prepare for video detection"},
-    {0x22, "TEST.15 setup video data on screen for video line test"},
-    {0x23, "  start check for option ROMs"},
-    {0x24, "  end   check for option ROMs"},
-    {0x25, "TEST.17 8259 interrupt controller test"},
-    {0x26, "  check for hot interrupts"},
-    {0x27, "  check for converting logic"},
-    {0x28, "  check for hot NMI interrupts without i/o memory parity enabled"},
-    {0x29, "  test the data bus to timer 2"},
-    {0x2A, "TEST.18 8254 timer checkout"},
-    {0x2B, "  setup timer"},
-    {0x2C, "  wait for interrupt"},
-    {0x2D, "  check 8042 for last command accepted"},
-    {0x2F, "TEST.19 additional read/write storage test (protected mode)"},
-    {0x30, "  set shutdown return 2"},
-    {0x31, "  protected mode enabled"},
-    {0x33, "  point to next block of 64k"},
-    {0x34, "  back to real mode - memory test done"},
-    {0x35, "TEST.21 keyboard test"},
-    {0x36, "  start memory test"},
-    {0x37, "  got scancode"},
-    {0x38, "  check for stuck keys"},
-    {0x39, "  stuck keys detected"},
-    {0x3A, "  initialize 8042 to honor key lock"},
-    {0x3C, "TEST.22 diskette attachment test"},
-    {0x3D, "  initialize floppy for drive type"},
-    {0x3E, "  initialize hard file"},
-    {0x3B, "TEST.22 check for optional ROM from C800-E000 in 2k blocks  "},    
-    {0x40, "  enable hardware interrupt if math processor (80287)"},
-    {0x3F, "  initialize printer"},
-    {0x41, "  test for system code at segment E000:0"},
-    {0x42, "  exiting to system code"},
-    {0x43, "Going to boot loader"},
-    {0x81, "  SYSINIT1: building GDT"},
-    {0x85, "  SYSINIT1: in protected mode now"},
-};
 
 inline void set_cmos(uint8_t addr, uint8_t data) {
     tb.mgmt_write = 1;
@@ -440,9 +370,9 @@ int main(int argc, char** argv) {
 
     printf("Starting simulation\n");
 
-    tb.clock_rate = 40000000;           // default clock rate (VGA max 35.9Mhz)
-    tb.clock_rate_vga = 40000000;       
-    if (!tb.clk_sys) step();             // make sure clk=0
+    tb.clock_rate = 40000000;            // for time keeping of timer, RTC and floppy
+    tb.clock_rate_vga = 57000000;        // at least 2x VGA pixel clock (25.2Mhz and 28.3Mhz)
+    if (!tb.clk_sys) step();             // make sure clk_sys is 1
     // reset whole system
     tb.reset = 1;
     // tb.cpu_reset = 1;
@@ -493,33 +423,17 @@ int main(int argc, char** argv) {
     while (sim_time < stop_time) {
         step();
 
-        // display POST codes in ANSI yellow color
-        if (trace_post && tb.system->cpu_io_write_do && !cpu_io_write_do_r && tb.system->cpu_io_write_address == 0x80) {
-            uint32_t eip = tb.system->ao486->eip;
-            uint8_t post_code = tb.system->cpu_io_write_data & 0xff;
-            if (eip != 0x02dd && post_code != 0x23) {
-                std::string msg = post_codes.find(post_code) != post_codes.end() ? post_codes[post_code] : "";
-                if (post_need_newline) {
-                    printf("\n");
-                    post_need_newline = false;
-                }
-                printf("%8lld: POST CODE \033[33m%02x\033[0m, EIP=%04x %s\n", sim_time, tb.system->cpu_io_write_data & 0xff,
-                        tb.system->ao486->eip, msg.c_str());
-            } else {
-                printf("%02x.", post_code);
-                post_need_newline = true;
-            }
-        }
-
         // watch memory locations
-        if (tb.clk_sys && tb.system->mem_write && !mem_write_r && watch_memory.find(tb.system->mem_address) != watch_memory.end()) {
-            printf("%8lld: WRITE [%08x]=%08x, BE=%1x, EIP=%08x\n", sim_time, tb.system->mem_address << 2, tb.system->mem_writedata,
-                    tb.system->mem_byteenable, tb.system->ao486->eip);
+        if (watch_memory.size() > 0) {
+            if (tb.clk_sys && tb.system->mem_write && !mem_write_r && watch_memory.find(tb.system->mem_address) != watch_memory.end()) {
+                printf("%8lld: WRITE [%08x]=%08x, BE=%1x, EIP=%08x\n", sim_time, tb.system->mem_address << 2, tb.system->mem_writedata,
+                        tb.system->mem_byteenable, tb.system->ao486->eip);
+            }
+            mem_write_r = tb.system->mem_write;
         }
-        mem_write_r = tb.system->mem_write;
 
-        // if (trace_ide)
-        //     print_ide_trace();
+        if (trace_ide)
+            print_ide_trace();
 
         if (trace_vga)
             print_vga_trace();
@@ -587,11 +501,6 @@ int main(int argc, char** argv) {
             printf(", C/H/S = %d/%d/%d, count=%d\n", cylinder, head, sector, count);
         }
         eip_r = tb.system->ao486->eip;
-
-        // process HDD requests
-        if (!tb.clk_sys) {
-            // ide0.process();
-        }
 
         // Capture video frame
         if (tb.clk_sys && tb.video_ce) {
